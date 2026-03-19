@@ -16,12 +16,18 @@ The main script seamlessly bridges these environments by delegating OCR tasks to
 
 ## ⚙️ Prerequisites
 Before installing, ensure your system has the following:
-* **Conda** (Miniconda or Anaconda)
-* **Python 3.9.11**
+* **Conda** (I suggest Miniconda)
+Install on Debian through:
+`wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh`
+For other systems: https://www.anaconda.com/download/
 * **Git**
-* **MindSpore 2.5.0 wheel installation package
+* **[MindSpore 2.5.0 wheel installation package](https://www.mindspore.cn/versions/en/)**
 
-*Note for Evaluators: This project was developed **entirely** on macOS (Apple Silicon). If you are testing this on Windows or Linux, please get the MindSpore installation `.whl` file for your machine, for Python 3.9 before running the setup commands below. MindSpore version 2.5.0 can be found [here](https://www.mindspore.cn/versions/en/).* 
+*Note for Evaluators: This project was developed **entirely** on macOS (Apple Silicon). If you are testing this on Windows or Linux, please get the MindSpore installation `.whl` file for your machine, for Python 3.9 before running the setup commands below.* 
+
+Tested on:
+* macOS 26 (ARM64)
+* Debian 13 (ARM64)
 
 ---
 
@@ -31,7 +37,7 @@ Before installing, ensure your system has the following:
 
 `git clone https://github.com/bilusgarage/CogniBridge`
 
-**2. Download MindSpore 2.5.0 (Python 3.9) package for your system**
+**2. Download [MindSpore 2.5.0 (Python 3.9) package](https://www.mindspore.cn/versions/en/) for your system**
 
 Example:
 * for Windows x86-64: `mindspore-2.5.0-cp39-cp39-win_amd64.whl`
@@ -40,6 +46,28 @@ Example:
 **2. Move the `mindspore[...].whl` file to the path `*CogniBridge/mindspore_installation_package/`**
 
 3. Launch installation script `install.py`
+
+## 🤔 How to use it?
+
+*Simplifying a `.txt` document
+1. At the end of `src/CogniBridge.py` file uncomment
+`process_document(input_txt, output_txt)`
+2. Comment
+`**#**process_image(input_img, output_img_results)`
+3. Put your text file as `data/complex_text.txt`
+4. `conda activate cogni39`
+5. Run the script
+6. Check results in `data/simplified_text.txt`
+
+*Simplifying text from a `.png` document
+1. At the end of `src/CogniBridge.py` file uncomment
+`process_image(input_img, output_img_results)`
+2. Comment
+`**#**process_document(input_txt, output_txt)`
+3. Put your PNG image file as `data/scan.png`
+4. `conda activate cogni39`
+5. Run the script
+6. Check results in `data/simplified_image.txt`
 
 ## Contributing
 
