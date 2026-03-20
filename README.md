@@ -51,7 +51,7 @@ Example:
 	1. At the end of `src/CogniBridge.py` file uncomment
 `process_document(input_txt, output_txt)`
 	2. Comment
-`**#**process_image(input_img, output_img_results)`
+`process_image(input_img, output_img_results)`
 	3. Put your text file as `data/complex_text.txt`
 	4. `conda activate cogni39`
 	5. Run `CogniBridge.py`
@@ -61,7 +61,7 @@ Example:
 	1. At the end of `src/CogniBridge.py` file uncomment
 `process_image(input_img, output_img_results)`
 	2. Comment
-`**#**process_document(input_txt, output_txt)`
+`process_document(input_txt, output_txt)`
 	3. Put your PNG image file as `data/scan.png`
 	4. `conda activate cogni39`
 	5. Run `CogniBridge.py`
