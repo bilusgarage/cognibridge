@@ -43,7 +43,7 @@ Example:
 
 **2. Move the `mindspore[...].whl` file to the path `CogniBridge/mindspore_installation_package/`**
 
-3. Launch installation script `install.py`
+**3. Launch installation script `install.py`**
 
 ## 🤔 How to use it?
 
