@@ -1,0 +1,3 @@
+(As the file name says)
+
+Put Mindspore 2.5.0 (Python 3.9) wheel installation package in this directory

@@ -217,7 +217,7 @@ if __name__ == "__main__":
     # ---------------------------------------------------------
     
     # Test 1: Process your text document
-    #process_document(input_txt, output_txt)
+    process_document(input_txt, output_txt)
     
     # Test 2: Process your scanned image
-    process_image(input_img, output_img_results)
+    #process_image(input_img, output_img_results)
