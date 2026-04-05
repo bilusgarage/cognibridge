@@ -4,7 +4,7 @@ CogniBridge is an AI-powered text simplification engine designed to break down l
 
 It leverages **MindSpore**, **MindNLP** (powering a local Qwen 2 Instruction model), and **MindOCR** to process both digital text and scanned physical documents.
 
-Looking for the mobile version? Check out the [cognibridge-mobile repository](https://github.com/bilusgarage/cognibridge-mobile)
+Looking for the mobile version? Check out the [cognibridge_mobile repository](https://github.com/bilusgarage/cognibridge_mobile)
 
 ## 🧠 Architecture
 
@@ -35,7 +35,7 @@ Tested on:
 
 **1. Clone the CogniBridge repository to your desired location**
 
-`git clone https://github.com/bilusgarage/CogniBridge`
+`git clone https://github.com/bilusgarage/cognibridge`
 
 **2. Download [MindSpore 2.5.0 (Python 3.9) package](https://www.mindspore.cn/versions/en/#2.5.0) for your system**
 
