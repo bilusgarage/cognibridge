@@ -42,6 +42,8 @@ fi
 echo "🚀 Starting CogniBridge Installation Protocol..."
 echo ""
 
+mkdir data inference_results
+
 # 1. Create the NLP Brain (cogni39)
 run_command "Creating 'cogni39' environment for Text Generation" \
     conda create -n cogni39 python=3.9.11 -c conda-forge -y
