@@ -10,7 +10,9 @@ from tkinter import font
 import cv2
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import textwrap
+import re
 import pyttsx3 
+import time
 
 # Monkey patch
 huggingface_hub.cached_download = huggingface_hub.hf_hub_download
@@ -168,6 +170,20 @@ def run_mindocr_isolated(image_path):
                         
     return extracted_text.strip(), global_bbox
 
+def split_into_sentences(text):
+    """
+    Splits a block of text into individual sentences using standard punctuation.
+    Perfect for step-by-step TTS playback.
+    """
+    if not text:
+        return []
+        
+    text = text.strip()
+    # Splits at spaces that immediately follow a period, exclamation, or question mark
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    
+    # Clean up the output to ensure no empty strings sneak through
+    return [s.strip() for s in sentences if s.strip()]
 
 # ==========================================
 # THE GUI APPLICATION (AR CAMERA KIOSK)
@@ -188,6 +204,12 @@ class CogniBridgeApp:
         self.frozen = False
         self.current_frame = None
 
+        # --- Playback State Variables ---
+        self.sentences = []
+        self.current_sentence_index = 0
+        self.is_playing = False
+        # (Removed self.playback_active)
+
         self.btn_font = font.Font(family="Helvetica", size=20, weight="bold")
         self.text_font = font.Font(family="Helvetica", size=16)
 
@@ -198,16 +220,36 @@ class CogniBridgeApp:
         self.update_video_feed()
 
     def on_media_reverse(self):
-        print("Reverse triggered")
-        # Add your rewind logic here
+        if self.sentences and self.current_sentence_index > 0:
+            self.current_sentence_index -= 1
+            print(f"\n◀️ REWIND TO SENTENCE {self.current_sentence_index}:")
+            print(self.sentences[self.current_sentence_index])
 
     def on_media_play_pause(self):
-        print("Play/Pause triggered")
-        # Add your play/pause toggle logic here
+        if not self.sentences:
+            return
+            
+        if self.current_sentence_index >= len(self.sentences):
+            self.current_sentence_index = 0
+            
+        self.is_playing = not self.is_playing
+        
+        if self.is_playing:
+            self.btn_play_pause.config(text="⏸️")
+            print(f"\n▶️ RESUMING AT SENTENCE {self.current_sentence_index}:")
+            print(self.sentences[self.current_sentence_index])
+            
+            # START A FRESH THREAD EVERY TIME YOU HIT PLAY
+            threading.Thread(target=self.audio_playback_loop, daemon=True).start()
+        else:
+            self.btn_play_pause.config(text="▶️")
+            print("\n⏸️ PAUSED PLAYBACK")
 
     def on_media_fast_forward(self):
-        print("Fast-forward triggered")
-        # Add your skip logic here
+        if self.sentences and self.current_sentence_index < len(self.sentences) - 1:
+            self.current_sentence_index += 1
+            print(f"\n⏩ SKIPPED TO SENTENCE {self.current_sentence_index}:")
+            print(self.sentences[self.current_sentence_index])
 
     def init_tts_engine(self):
         """Sets up the TTS engine, loads available voices, and pre-selects an English one."""
@@ -329,7 +371,8 @@ class CogniBridgeApp:
         else:
             self.frozen = False
             self.btn_action.config(text="📸 SCAN DOCUMENT", bg="#a6e3a1", state=tk.NORMAL)
-            self.tts_engine.stop()
+            # Safely shut down the background audio loop
+            self.is_playing = False
 
     def run_full_pipeline(self, filepath):
         raw_text, bbox = run_mindocr_isolated(filepath)
@@ -341,12 +384,51 @@ class CogniBridgeApp:
         self.root.after(0, self.update_button_state, "🧠 SIMPLIFYING...", "#cba6f7", tk.DISABLED)
         simplified = cognibridge_simplify(raw_text)
         
+        # Shut down any previous audio loop
+        self.is_playing = False
+        time.sleep(0.2) 
+        
+        # Reset trackers for the new document
+        self.sentences = split_into_sentences(simplified)
+        self.current_sentence_index = 0
+        self.is_playing = True
+        
         self.root.after(0, self.draw_ar_overlay, filepath, simplified, bbox)
-        threading.Thread(target=self.speak_text, args=(simplified,), daemon=True).start()
+        
+        # Start the background playback loop
+        threading.Thread(target=self.audio_playback_loop, daemon=True).start()
 
-    def speak_text(self, text):
-        self.tts_engine.say(text)
-        self.tts_engine.runAndWait()
+    def audio_playback_loop(self):
+        # Create a fresh thread-local TTS engine for this specific playback session.
+        # This completely bypasses the macOS background runloop crash.
+        local_tts = pyttsx3.init()
+        local_tts.setProperty('rate', 160)
+        local_tts.setProperty('voice', self.tts_engine.getProperty('voice'))
+
+        # Run continuously ONLY as long as the user hasn't pressed pause
+        while self.is_playing and self.current_sentence_index < len(self.sentences):
+            speaking_index = self.current_sentence_index
+            sentence = self.sentences[speaking_index]
+            
+            # Speak the sentence
+            local_tts.say(sentence)
+            local_tts.runAndWait()
+            
+            # Check if we should advance to the next sentence
+            if self.current_sentence_index == speaking_index:
+                if self.is_playing:
+                    # User didn't pause, move to the next sentence naturally
+                    self.current_sentence_index += 1
+                else:
+                    # User pressed pause while it was reading! 
+                    # Do NOT increment the index. Break the loop so the thread dies.
+                    # When they hit Play again, it will repeat this same sentence.
+                    break
+            
+        # If we exited the loop because we naturally reached the end of the document
+        if self.current_sentence_index >= len(self.sentences) and self.is_playing:
+            self.is_playing = False
+            self.root.after(0, lambda: self.btn_play_pause.config(text="▶️"))
 
     def update_button_state(self, text, color, state):
         self.btn_action.config(text=text, bg=color, state=state)
