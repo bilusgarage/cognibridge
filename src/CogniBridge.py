@@ -45,15 +45,11 @@ pipe = pipeline(
 print("CogniBridge is ready!\n")
 
 # --- DYNAMIC CROSS-PLATFORM PATH FINDERS ---
-
 def get_mindocr_python_path():
-    """Dynamically finds the mindocr_env python executable based on the current cogni39 path."""
     current_python = sys.executable 
-    # Swap the environment name in the path. This works identically on Mac, Windows, and Linux.
     return current_python.replace("cogni39", "mindocr_env")
 
 def get_system_font_path():
-    """Returns a valid bold font path depending on the current Operating System."""
     os_name = platform.system()
     if os_name == "Windows":
         return "C:/Windows/Fonts/arialbd.ttf"
@@ -61,7 +57,6 @@ def get_system_font_path():
         return "/System/Library/Fonts/Helvetica.ttc"
     else: # Linux / Raspberry Pi
         return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
 # -------------------------------------------
 
 def cognibridge_simplify(text):
@@ -181,12 +176,8 @@ class CogniBridgeApp:
         self.root = root
         self.root.title("CogniBridge AI Scanner")
         
-        # Keep fullscreen for Pi, but allow Mac/Windows testing to be easier to exit
-        if platform.system() == "Linux":
-            self.root.attributes('-fullscreen', True)
-        else:
-            self.root.geometry("800x600") # Windowed mode for desktop testing
-            
+        # 1. FIXED: Strictly enforcing Fullscreen like your working code
+        self.root.attributes('-fullscreen', True)
         self.root.configure(bg="#000000") 
         
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -197,34 +188,40 @@ class CogniBridgeApp:
         self.current_frame = None
 
         self.btn_font = font.Font(family="Helvetica", size=20, weight="bold")
+        self.text_font = font.Font(family="Helvetica", size=16)
 
-        # Initialize Camera
-        # macOS sometimes prefers cv2.CAP_AVFOUNDATION, but 0 is usually safe
         self.cap = cv2.VideoCapture(0)
         
-        # Initialize the TTS Engine safely
         self.init_tts_engine()
-
         self.setup_ui()
         self.update_video_feed()
 
     def init_tts_engine(self):
-        """Sets up the TTS engine and prepares the callback for your future UI highlighting."""
+        """Sets up the TTS engine, loads available voices, and pre-selects an English one."""
         self.tts_engine = pyttsx3.init()
         self.tts_engine.setProperty('rate', 160) 
         
-        # PREP FOR FUTURE FEATURE: The 'onWord' callback
-        # This fires every time the engine speaks a new word!
+        self.voices = self.tts_engine.getProperty('voices')
+        
+        for voice in self.voices:
+            if 'en' in voice.id.lower() or 'english' in voice.name.lower() or 'sam' in voice.name.lower():
+                self.tts_engine.setProperty('voice', voice.id)
+                break
+        
         def on_word(name, location, length):
-            # print(f"Currently speaking word at index: {location}")
-            # Later, you will update the Tkinter canvas here
-            pass
+            pass 
             
         self.tts_engine.connect('onWord', on_word)
 
     def setup_ui(self):
         self.video_label = tk.Label(self.root, bg="#000000")
         self.video_label.pack(fill=tk.BOTH, expand=True)
+
+        # Settings Button Overlay
+        self.btn_settings = tk.Button(self.root, text="⚙️", font=font.Font(size=24), 
+                                      bg="#1e1e2e", fg="white", bd=0, 
+                                      command=self.open_settings)
+        self.btn_settings.place(x=20, y=20) 
 
         self.btn_frame = tk.Frame(self.root, bg="#000000")
         self.btn_frame.place(relx=0.5, rely=0.9, anchor=tk.CENTER)
@@ -239,6 +236,37 @@ class CogniBridgeApp:
                                   command=self.on_exit)
         self.btn_exit.pack(side=tk.LEFT, padx=20)
 
+    def open_settings(self):
+        """Opens a sleek overlay to change the TTS Voice."""
+        self.frozen = True 
+        
+        self.settings_frame = tk.Frame(self.root, bg="#1e1e2e", bd=5, relief=tk.RAISED)
+        self.settings_frame.place(relx=0.5, rely=0.5, anchor=tk.CENTER, relwidth=0.6, relheight=0.4)
+        
+        tk.Label(self.settings_frame, text="⚙️ Text-to-Speech Settings", font=self.btn_font, bg="#1e1e2e", fg="#cdd6f4").pack(pady=20)
+        
+        voice_names = [v.name for v in self.voices]
+        self.selected_voice_name = tk.StringVar(self.root)
+        
+        current_id = self.tts_engine.getProperty('voice')
+        current_name = next((v.name for v in self.voices if v.id == current_id), voice_names[0])
+        self.selected_voice_name.set(current_name)
+        
+        dropdown = tk.OptionMenu(self.settings_frame, self.selected_voice_name, *voice_names)
+        dropdown.config(font=self.text_font, bg="#313244", fg="#cdd6f4", highlightthickness=0)
+        dropdown.pack(pady=20)
+        
+        def save_and_close():
+            chosen = self.selected_voice_name.get()
+            for v in self.voices:
+                if v.name == chosen:
+                    self.tts_engine.setProperty('voice', v.id)
+                    break
+            self.settings_frame.destroy()
+            self.frozen = False 
+            
+        tk.Button(self.settings_frame, text="✅ Save & Close", font=self.btn_font, bg="#a6e3a1", fg="black", command=save_and_close).pack(pady=20)
+
     def update_video_feed(self):
         if not self.frozen:
             ret, frame = self.cap.read()
@@ -247,10 +275,8 @@ class CogniBridgeApp:
                 cv_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(cv_img)
                 
-                # Resize image slightly if not fullscreen to fit the testing window
-                if platform.system() != "Linux":
-                     pil_img = pil_img.resize((800, 600), Image.Resampling.LANCZOS)
-                     
+                # 2. FIXED: Removed all resizing math to match the working AR code exactly
+                
                 self.photo = ImageTk.PhotoImage(image=pil_img)
                 self.video_label.config(image=self.photo)
 
@@ -258,7 +284,6 @@ class CogniBridgeApp:
 
     def handle_button_click(self):
         if not self.frozen:
-            # Scanning mode
             self.frozen = True 
             filepath = os.path.join(self.photos_dir, "scan.png")
             cv2.imwrite(filepath, self.current_frame)
@@ -266,11 +291,8 @@ class CogniBridgeApp:
             self.btn_action.config(text="👁️ READING TEXT...", bg="#f9e2af", state=tk.DISABLED)
             threading.Thread(target=self.run_full_pipeline, args=(filepath,), daemon=True).start()
         else:
-            # Resetting mode
             self.frozen = False
             self.btn_action.config(text="📸 SCAN DOCUMENT", bg="#a6e3a1", state=tk.NORMAL)
-            
-            # Stop the TTS engine if they reset early
             self.tts_engine.stop()
 
     def run_full_pipeline(self, filepath):
@@ -284,12 +306,9 @@ class CogniBridgeApp:
         simplified = cognibridge_simplify(raw_text)
         
         self.root.after(0, self.draw_ar_overlay, filepath, simplified, bbox)
-        
-        # Fire the speech in a thread
         threading.Thread(target=self.speak_text, args=(simplified,), daemon=True).start()
 
     def speak_text(self, text):
-        """Reads the text aloud using the OS-native offline voice."""
         self.tts_engine.say(text)
         self.tts_engine.runAndWait()
 
@@ -297,12 +316,8 @@ class CogniBridgeApp:
         self.btn_action.config(text=text, bg=color, state=state)
 
     def draw_ar_overlay(self, filepath, simplified_text, bbox):
+        # 3. FIXED: Image is pulled raw with no resizing applied, matching the exact OCR math
         img = Image.open(filepath).convert("RGBA")
-        
-        # Scale bounding box if image was resized for desktop testing
-        if platform.system() != "Linux":
-            img = img.resize((800, 600), Image.Resampling.LANCZOS)
-            
         overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(overlay)
 
@@ -312,7 +327,6 @@ class CogniBridgeApp:
         draw.rectangle(((x1, y1), (x2, y2)), fill=(30, 30, 46, 220))
 
         try:
-            # Dynamically pull the correct OS font!
             font_path = get_system_font_path()
             ar_font = ImageFont.truetype(font_path, 20)
         except IOError:
