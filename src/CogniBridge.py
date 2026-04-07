@@ -76,7 +76,8 @@ Simple: {ex3_simple}
 Complex: {ex4_paragraph_complex}
 Simple: {ex4_paragraph_simple}
 
-Now, shorten and simplify this text using the simple sentence style. ONLY output the simplified text. Do not add any explanations, notes, or extra text.
+Now, shorten and simplify this text using the simple sentence style. ONLY output the simplified text. Do not add any explanations, notes, or extra text. Do not write anything other than the simplified version of the text. Keep all the original meaning, but make it as easy to read as possible. Use everyday language and insert punctuation marks (. , ? !) where necessary.
+
 Complex: {text}
 Simple:"""
 
