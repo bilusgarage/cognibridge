@@ -1,4 +1,6 @@
 import os
+import sys
+import platform
 import subprocess
 import huggingface_hub
 import json
@@ -7,7 +9,8 @@ import tkinter as tk
 from tkinter import font
 import cv2
 from PIL import Image, ImageTk, ImageDraw, ImageFont
-import textwrap # NEW: Used for wrapping the text inside the bounding box
+import textwrap
+import pyttsx3 
 
 # Monkey patch
 huggingface_hub.cached_download = huggingface_hub.hf_hub_download
@@ -41,6 +44,26 @@ pipe = pipeline(
 
 print("CogniBridge is ready!\n")
 
+# --- DYNAMIC CROSS-PLATFORM PATH FINDERS ---
+
+def get_mindocr_python_path():
+    """Dynamically finds the mindocr_env python executable based on the current cogni39 path."""
+    current_python = sys.executable 
+    # Swap the environment name in the path. This works identically on Mac, Windows, and Linux.
+    return current_python.replace("cogni39", "mindocr_env")
+
+def get_system_font_path():
+    """Returns a valid bold font path depending on the current Operating System."""
+    os_name = platform.system()
+    if os_name == "Windows":
+        return "C:/Windows/Fonts/arialbd.ttf"
+    elif os_name == "Darwin": # macOS
+        return "/System/Library/Fonts/Helvetica.ttc"
+    else: # Linux / Raspberry Pi
+        return "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+# -------------------------------------------
+
 def cognibridge_simplify(text):
     word_count = len(text.split())
     dynamic_max_tokens = min(int((word_count * 2) + 20), 512)
@@ -73,8 +96,7 @@ Simple:"""
     return raw_output.split("Complex:")[0].strip()
 
 def run_mindocr_isolated(image_path):
-    """Now returns BOTH the text and the global bounding box (min_x, min_y, max_x, max_y)"""
-    mindocr_python_path = "/opt/miniconda3/envs/mindocr_env/bin/python"
+    mindocr_python_path = get_mindocr_python_path()
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, ".."))
     predict_script = os.path.join(project_root, "mindocr", "tools", "infer", "text", "predict_system.py")
@@ -101,7 +123,6 @@ def run_mindocr_isolated(image_path):
                         data = json.loads(raw_json_string)
                         processed_boxes = []
                         
-                        # Tracking the absolute outer limits of the text block
                         g_min_x, g_min_y = float('inf'), float('inf')
                         g_max_x, g_max_y = 0, 0
 
@@ -112,7 +133,6 @@ def run_mindocr_isolated(image_path):
                             max_x = max(p[0] for p in points)
                             max_y = max(p[1] for p in points)
                             
-                            # Update global bounds
                             g_min_x = min(g_min_x, min_x)
                             g_min_y = min(g_min_y, min_y)
                             g_max_x = max(g_max_x, max_x)
@@ -123,12 +143,9 @@ def run_mindocr_isolated(image_path):
                                 'min_x': min_x, 'center_y': (min_y + max_y) / 2.0, 'height': max_y - min_y
                             })
                         
-                        # Save the global bounding box
                         if data:
-                            # Add a 10px padding around the box so it looks nice
                             global_bbox = (int(g_min_x)-10, int(g_min_y)-10, int(g_max_x)+10, int(g_max_y)+10)
 
-                        # Existing spatial sorting
                         processed_boxes.sort(key=lambda b: b['center_y'])
                         lines, current_line = [], []
                         for box in processed_boxes:
@@ -163,7 +180,13 @@ class CogniBridgeApp:
     def __init__(self, root):
         self.root = root
         self.root.title("CogniBridge AI Scanner")
-        self.root.attributes('-fullscreen', True)
+        
+        # Keep fullscreen for Pi, but allow Mac/Windows testing to be easier to exit
+        if platform.system() == "Linux":
+            self.root.attributes('-fullscreen', True)
+        else:
+            self.root.geometry("800x600") # Windowed mode for desktop testing
+            
         self.root.configure(bg="#000000") 
         
         self.script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -175,9 +198,29 @@ class CogniBridgeApp:
 
         self.btn_font = font.Font(family="Helvetica", size=20, weight="bold")
 
+        # Initialize Camera
+        # macOS sometimes prefers cv2.CAP_AVFOUNDATION, but 0 is usually safe
         self.cap = cv2.VideoCapture(0)
+        
+        # Initialize the TTS Engine safely
+        self.init_tts_engine()
+
         self.setup_ui()
         self.update_video_feed()
+
+    def init_tts_engine(self):
+        """Sets up the TTS engine and prepares the callback for your future UI highlighting."""
+        self.tts_engine = pyttsx3.init()
+        self.tts_engine.setProperty('rate', 160) 
+        
+        # PREP FOR FUTURE FEATURE: The 'onWord' callback
+        # This fires every time the engine speaks a new word!
+        def on_word(name, location, length):
+            # print(f"Currently speaking word at index: {location}")
+            # Later, you will update the Tkinter canvas here
+            pass
+            
+        self.tts_engine.connect('onWord', on_word)
 
     def setup_ui(self):
         self.video_label = tk.Label(self.root, bg="#000000")
@@ -203,15 +246,19 @@ class CogniBridgeApp:
                 self.current_frame = frame
                 cv_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(cv_img)
+                
+                # Resize image slightly if not fullscreen to fit the testing window
+                if platform.system() != "Linux":
+                     pil_img = pil_img.resize((800, 600), Image.Resampling.LANCZOS)
+                     
                 self.photo = ImageTk.PhotoImage(image=pil_img)
                 self.video_label.config(image=self.photo)
 
         self.root.after(15, self.update_video_feed)
 
     def handle_button_click(self):
-        """Toggles between scanning a new document and resetting the UI."""
         if not self.frozen:
-            # We are scanning
+            # Scanning mode
             self.frozen = True 
             filepath = os.path.join(self.photos_dir, "scan.png")
             cv2.imwrite(filepath, self.current_frame)
@@ -219,65 +266,67 @@ class CogniBridgeApp:
             self.btn_action.config(text="👁️ READING TEXT...", bg="#f9e2af", state=tk.DISABLED)
             threading.Thread(target=self.run_full_pipeline, args=(filepath,), daemon=True).start()
         else:
-            # We are resetting
+            # Resetting mode
             self.frozen = False
             self.btn_action.config(text="📸 SCAN DOCUMENT", bg="#a6e3a1", state=tk.NORMAL)
+            
+            # Stop the TTS engine if they reset early
+            self.tts_engine.stop()
 
     def run_full_pipeline(self, filepath):
-        # Step 1: Extract Text & Get Bounding Box
         raw_text, bbox = run_mindocr_isolated(filepath)
         
         if not raw_text or not bbox:
             self.root.after(0, self.update_button_state, "❌ NO TEXT FOUND - TAP TO RESET", "#f38ba8", tk.NORMAL)
             return
 
-        # Step 2: Simplify
         self.root.after(0, self.update_button_state, "🧠 SIMPLIFYING...", "#cba6f7", tk.DISABLED)
         simplified = cognibridge_simplify(raw_text)
         
-        # Step 3: Draw the AR Overlay
         self.root.after(0, self.draw_ar_overlay, filepath, simplified, bbox)
+        
+        # Fire the speech in a thread
+        threading.Thread(target=self.speak_text, args=(simplified,), daemon=True).start()
+
+    def speak_text(self, text):
+        """Reads the text aloud using the OS-native offline voice."""
+        self.tts_engine.say(text)
+        self.tts_engine.runAndWait()
 
     def update_button_state(self, text, color, state):
         self.btn_action.config(text=text, bg=color, state=state)
 
     def draw_ar_overlay(self, filepath, simplified_text, bbox):
-        """Modifies the photo to paint the simplified text over the complex text."""
-        # Load the frozen photo in RGBA (so we can do transparent overlays)
         img = Image.open(filepath).convert("RGBA")
+        
+        # Scale bounding box if image was resized for desktop testing
+        if platform.system() != "Linux":
+            img = img.resize((800, 600), Image.Resampling.LANCZOS)
+            
         overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(overlay)
 
         x1, y1, x2, y2 = bbox
         box_width = x2 - x1
 
-        # 1. Draw a dark, semi-transparent box over the original text
-        draw.rectangle(((x1, y1), (x2, y2)), fill=(30, 30, 46, 220)) # Dark slate background
+        draw.rectangle(((x1, y1), (x2, y2)), fill=(30, 30, 46, 220))
 
-        # 2. Try to load a nice font, fallback to default if on Pi
         try:
-            # This is the default path for a nice font on Debian/Raspberry Pi
-            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            # Dynamically pull the correct OS font!
+            font_path = get_system_font_path()
             ar_font = ImageFont.truetype(font_path, 20)
         except IOError:
             ar_font = ImageFont.load_default()
 
-        # 3. Calculate how to wrap the text so it fits inside the box width
-        # A rough heuristic: average char width is about 10-12 pixels at size 20
         chars_per_line = max(15, box_width // 11) 
         wrapped_text = textwrap.fill(simplified_text, width=chars_per_line)
 
-        # 4. Draw the simplified text in bright green over the dark box
         draw.multiline_text((x1 + 10, y1 + 10), wrapped_text, fill=(166, 227, 161, 255), font=ar_font, spacing=4)
 
-        # Combine the original image with the AR overlay
         final_img = Image.alpha_composite(img, overlay).convert("RGB")
-        
-        # Update the UI
         self.photo = ImageTk.PhotoImage(image=final_img)
         self.video_label.config(image=self.photo)
 
-        # Change button to allow resetting
         self.btn_action.config(text="🔄 TAP TO RESET", bg="#89b4fa", state=tk.NORMAL)
 
     def on_exit(self):

@@ -3,3 +3,4 @@ data/*.png
 data/*.jpg
 data/*.txt
 data/photos/*
+inference_results/system_results.txt
