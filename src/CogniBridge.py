@@ -11,7 +11,10 @@ import cv2
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import textwrap
 import pyttsx3
+<<<<<<< Updated upstream
 import time
+=======
+>>>>>>> Stashed changes
 import re
 
 # Monkey patch
@@ -170,6 +173,20 @@ def run_mindocr_isolated(image_path):
                         
     return extracted_text.strip(), global_bbox
 
+def split_into_sentences(text):
+    """
+    Splits a block of text into individual sentences using standard punctuation.
+    Perfect for step-by-step TTS playback.
+    """
+    if not text:
+        return []
+        
+    text = text.strip()
+    # Splits at spaces that immediately follow a period, exclamation, or question mark
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    
+    # Clean up the output to ensure no empty strings sneak through
+    return [s.strip() for s in sentences if s.strip()]
 
 # ==========================================
 # THE GUI APPLICATION (AR CAMERA KIOSK)
@@ -192,8 +209,12 @@ class CogniBridgeApp:
         # --- NEW: Playback State Variables ---
         self.sentences = []
         self.current_sentence_index = 0
+<<<<<<< Updated upstream
         self.is_paused = False
         self.stop_playback = False
+=======
+        self.is_playing = False
+>>>>>>> Stashed changes
 
         self.btn_font = font.Font(family="Helvetica", size=20, weight="bold")
         self.text_font = font.Font(family="Helvetica", size=16)
@@ -208,6 +229,7 @@ class CogniBridgeApp:
         if self.current_sentence_index > 0:
             self.current_sentence_index -= 1
 
+<<<<<<< Updated upstream
     def on_play_pause(self):
         # If the user presses play, but we are already at the end of the text, restart from the beginning
         if self.current_sentence_index >= len(self.sentences):
@@ -224,6 +246,32 @@ class CogniBridgeApp:
         # Allow fast-forwarding to the very end, which will trigger the auto-pause state
         if self.current_sentence_index < len(self.sentences):
             self.current_sentence_index += 1
+=======
+    def on_media_reverse(self):
+        if self.sentences and self.current_sentence_index > 0:
+            self.current_sentence_index -= 1
+            print(f"\n◀️ REWIND TO SENTENCE {self.current_sentence_index}:")
+            print(self.sentences[self.current_sentence_index])
+
+    def on_media_play_pause(self):
+        if not self.sentences:
+            return
+            
+        self.is_playing = not self.is_playing
+        if self.is_playing:
+            self.btn_play_pause.config(text="⏸️")
+            print(f"\n▶️ RESUMING AT SENTENCE {self.current_sentence_index}:")
+            print(self.sentences[self.current_sentence_index])
+        else:
+            self.btn_play_pause.config(text="▶️")
+            print("\n⏸️ PAUSED PLAYBACK")
+
+    def on_media_fast_forward(self):
+        if self.sentences and self.current_sentence_index < len(self.sentences) - 1:
+            self.current_sentence_index += 1
+            print(f"\n⏩ SKIPPED TO SENTENCE {self.current_sentence_index}:")
+            print(self.sentences[self.current_sentence_index])
+>>>>>>> Stashed changes
 
     def init_tts_engine(self):
         self.tts_engine = pyttsx3.init()
@@ -340,6 +388,14 @@ class CogniBridgeApp:
 
         self.root.after(0, self.update_button_state, "🧠 SIMPLIFYING...", "#cba6f7", tk.DISABLED)
         simplified = cognibridge_simplify(raw_text)
+        
+        #self.root.after(0, self.draw_ar_overlay, filepath, simplified, bbox)
+        #threading.Thread(target=self.speak_text, args=(simplified,), daemon=True).start()
+
+        # --- NEW: Split the text and reset trackers ---
+        self.sentences = split_into_sentences(simplified)
+        self.current_sentence_index = 0
+        self.is_playing = True
         
         self.root.after(0, self.draw_ar_overlay, filepath, simplified, bbox)
         
