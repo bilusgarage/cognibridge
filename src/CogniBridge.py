@@ -229,7 +229,7 @@ class CogniBridgeApp:
             self.current_sentence_index -= 1
             print(f"\n◀️ REWIND TO SENTENCE {self.current_sentence_index}:")
             print(self.sentences[self.current_sentence_index])
-            self.root.after(0, self.update_ar_overlay) # NEW
+            self.root.after(0, self.update_screen_ui) # NEW
 
     def on_media_play_pause(self):
         if not self.sentences:
@@ -251,14 +251,14 @@ class CogniBridgeApp:
         else:
             self.btn_play_pause.config(text="▶️")
             print("\n⏸️ PAUSED PLAYBACK")
-            self.root.after(0, self.update_ar_overlay)
+            self.root.after(0, self.update_screen_ui)
 
     def on_media_fast_forward(self):
         if self.sentences and self.current_sentence_index < len(self.sentences) - 1:
             self.current_sentence_index += 1
             print(f"\n⏩ SKIPPED TO SENTENCE {self.current_sentence_index}:")
             print(self.sentences[self.current_sentence_index])
-            self.root.after(0, self.update_ar_overlay) # NEW``
+            self.root.after(0, self.update_screen_ui) # NEW``
 
     def init_tts_engine(self):
         """Sets up the TTS engine, loads available voices, and pre-selects an English one."""
@@ -267,9 +267,14 @@ class CogniBridgeApp:
         
         self.voices = self.tts_engine.getProperty('voices')
         
+        # --- NEW: Safe string tracker for the background thread ---
+        if self.voices:
+            self.current_voice_id = self.voices[0].id 
+        
         for voice in self.voices:
             if 'en' in voice.id.lower() or 'english' in voice.name.lower() or 'sam' in voice.name.lower():
-                self.tts_engine.setProperty('voice', voice.id)
+                self.current_voice_id = voice.id
+                self.tts_engine.setProperty('voice', self.current_voice_id)
                 break
         
         def on_word(name, location, length):
@@ -281,6 +286,12 @@ class CogniBridgeApp:
         self.video_label = tk.Label(self.root, bg="#000000")
         self.video_label.pack(fill=tk.BOTH, expand=True)
 
+        # --- NEW: Subtitle Label (Above the action buttons) ---
+        self.subtitle_font = font.Font(family="Helvetica", size=28, weight="bold")
+        self.subtitle_label = tk.Label(self.root, text="", font=self.subtitle_font, 
+                                       bg="#000000", fg="#f9e2af", wraplength=1200, justify="center")
+        self.subtitle_label.place(relx=0.5, rely=0.72, anchor=tk.CENTER)
+
         # Settings Button Overlay (Top Left)
         self.btn_settings = tk.Button(self.root, text="⚙️", font=font.Font(size=24), 
                                       bg="#1e1e2e", fg="white", bd=0, 
@@ -291,7 +302,6 @@ class CogniBridgeApp:
         self.btn_exit = tk.Button(self.root, text="❌ EXIT", font=self.btn_font, 
                                   bg="#f38ba8", fg="black", height=2, width=10, 
                                   command=self.on_exit)
-        # Using anchor=tk.NE (North-East) to pin the right edge dynamically
         self.btn_exit.place(relx=1.0, y=20, x=-20, anchor=tk.NE)
 
         # Main Action Frame (Bottom Center)
@@ -347,10 +357,11 @@ class CogniBridgeApp:
             chosen = self.selected_voice_name.get()
             for v in self.voices:
                 if v.name == chosen:
+                    self.current_voice_id = v.id # --- NEW: Update the string tracker ---
                     self.tts_engine.setProperty('voice', v.id)
                     break
             self.settings_frame.destroy()
-            self.frozen = False 
+            self.frozen = False
             
         tk.Button(self.settings_frame, text="✅ Save & Close", font=self.btn_font, bg="#a6e3a1", fg="black", command=save_and_close).pack(pady=20)
 
@@ -380,9 +391,9 @@ class CogniBridgeApp:
         else:
             self.frozen = False
             self.btn_action.config(text="📸 SCAN DOCUMENT", bg="#a6e3a1", state=tk.NORMAL)
-            # Safely shut down the background audio loop
+            self.subtitle_label.config(text="") # --- NEW: Hide text on reset ---
             self.is_playing = False
-            self.play_generation += 1 # NEW: Invalidate the current thread
+            self.play_generation += 1
 
     def run_full_pipeline(self, filepath):
         raw_text, bbox = run_mindocr_isolated(filepath)
@@ -407,42 +418,41 @@ class CogniBridgeApp:
         
         self.current_filepath = filepath
         self.current_bbox = bbox
-        self.root.after(0, self.update_ar_overlay)
+        self.root.after(0, self.update_screen_ui)
         
         # NEW: Pass the generation to the thread
         threading.Thread(target=self.audio_playback_loop, args=(self.play_generation,), daemon=True).start()
 
     def audio_playback_loop(self, generation):
         with self.tts_lock:
-            # If generation changed while waiting for the lock, abort immediately
             if self.play_generation != generation:
                 return
 
-            local_tts = pyttsx3.init()
-            local_tts.setProperty('rate', 160)
-            local_tts.setProperty('voice', self.tts_engine.getProperty('voice'))
-
-            # Check that is_playing is True AND the generation hasn't been overwritten
             while self.is_playing and self.play_generation == generation and self.current_sentence_index < len(self.sentences):
                 speaking_index = self.current_sentence_index
                 sentence = self.sentences[speaking_index]
                 
-                self.root.after(0, self.update_ar_overlay)
+                self.root.after(0, self.update_screen_ui)
+                
+                # --- NEW: Initialize a completely fresh engine for THIS sentence ---
+                local_tts = pyttsx3.init()
+                local_tts.setProperty('rate', 160)
+                # Use the thread-safe string, NOT the main thread's engine
+                local_tts.setProperty('voice', self.current_voice_id) 
                 
                 local_tts.say(sentence)
-                local_tts.runAndWait()
+                local_tts.runAndWait() # Halts here until the sentence is 100% finished
+                
+                # --- NEW: Explicitly delete to free the OS audio resource ---
+                del local_tts 
                 
                 if self.current_sentence_index == speaking_index:
-                    # Only proceed if still playing and generation matches
                     if self.is_playing and self.play_generation == generation:
                         self.current_sentence_index += 1
                         
-                        # --- NEW: 2-Second Responsive Pause ---
-                        # Only pause if there is another sentence coming up
                         if self.current_sentence_index < len(self.sentences):
                             slept = 0.0
                             while slept < 2.0:
-                                # Break out instantly if the user hits pause or scans a new doc
                                 if not self.is_playing or self.play_generation != generation:
                                     break
                                 time.sleep(0.1)
@@ -451,7 +461,6 @@ class CogniBridgeApp:
                     else:
                         break
                 
-            # Clean up the UI button state if it naturally finished the document
             if self.current_sentence_index >= len(self.sentences) and self.is_playing and self.play_generation == generation:
                 self.is_playing = False
                 self.root.after(0, lambda: self.btn_play_pause.config(text="▶️"))
@@ -459,53 +468,23 @@ class CogniBridgeApp:
     def update_button_state(self, text, color, state):
         self.btn_action.config(text=text, bg=color, state=state)
 
-    def update_ar_overlay(self):
-        """Redraws the AR overlay, highlighting the current sentence."""
-        if not self.current_filepath or not self.current_bbox or not self.sentences:
+    def update_screen_ui(self):
+        """Updates the screen to show the photo and the current sentence at the bottom."""
+        if not self.current_filepath or not self.sentences:
             return
 
-        img = Image.open(self.current_filepath).convert("RGBA")
-        overlay = Image.new('RGBA', img.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(overlay)
-
-        x1, y1, x2, y2 = self.current_bbox
-        box_width = x2 - x1
-
-        try:
-            font_path = get_system_font_path()
-            ar_font = ImageFont.truetype(font_path, 20)
-        except IOError:
-            ar_font = ImageFont.load_default()
-
-        chars_per_line = max(15, box_width // 11) 
-        line_height = 26 # Safe spacing for size 20 font
-        
-        # Pre-wrap sentences and calculate the total required height for the dark background
-        total_height = 20 
-        wrapped_sentences = []
-        for sentence in self.sentences:
-            lines = textwrap.wrap(sentence, width=chars_per_line)
-            wrapped_sentences.append(lines)
-            total_height += (len(lines) * line_height) + 8 # +8px gap between sentences
-            
-        # Draw the dynamically sized background box
-        draw.rectangle(((x1, y1), (x2, y1 + total_height)), fill=(30, 30, 46, 220))
-
-        # Draw the text sentence by sentence
-        cursor_y = y1 + 10
-        for i, lines in enumerate(wrapped_sentences):
-            # Yellow if currently reading, otherwise standard green
-            text_color = (249, 226, 175, 255) if i == self.current_sentence_index else (166, 227, 161, 255)
-            
-            for line in lines:
-                draw.text((x1 + 10, cursor_y), line, fill=text_color, font=ar_font)
-                cursor_y += line_height
-            
-            cursor_y += 8 # Extra visual gap after each sentence
-
-        final_img = Image.alpha_composite(img, overlay).convert("RGB")
-        self.photo = ImageTk.PhotoImage(image=final_img)
+        # Show the clean, unmodified photo
+        img = Image.open(self.current_filepath).convert("RGB")
+        self.photo = ImageTk.PhotoImage(image=img)
         self.video_label.config(image=self.photo)
+
+        # Update the subtitle label at the bottom
+        if self.current_sentence_index < len(self.sentences):
+            current_text = self.sentences[self.current_sentence_index]
+        else:
+            current_text = "✅ Finished reading."
+            
+        self.subtitle_label.config(text=current_text)
 
         self.btn_action.config(text="🔄 TAP TO RESET", bg="#89b4fa", state=tk.NORMAL)
 
